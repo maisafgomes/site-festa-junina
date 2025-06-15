@@ -1,0 +1,16 @@
+
+[tool.poetry]
+name = "site-festa-junina-backend"
+version = "0.1.0"
+description = "API Flask para o site de upload e galeria de fotos da Festa Junina."
+authors = ["Seu Nome <seu@email.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+flask = "^2.3.0"
+flask-cors = "^4.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
