@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Galeria de Fotos</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+        h1 { margin-bottom: 1.2rem; }
+
+        .galeria {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .foto {
+            width: 200px;
+            text-align: center;
+        }
+        .foto img {
+            width: 100%;
+            border-radius: 10px;
+            object-fit: cover;
+            box-shadow: 0 2px 6px rgba(0,0,0,.18);
+        }
+        .foto a {
+            text-decoration: none;
+            font-size: 14px;
+            display: inline-block;
+            margin-top: 6px;
+        }
+        .btn-download {
+            color: #fff;
+            background:#4285f4;
+            padding: 4px 10px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Galeria de Fotos</h1>
+    <div class="galeria" id="galeria"></div>
+
+<script>
+  fetch('/api/fotos')
+    .then(r => r.json())
+    .then(fotos => {
+      const galeria = document.getElementById('galeria');
+
+      fotos.forEach(foto => {
+        const card = document.createElement('div');
+        card.className = 'foto';
+
+        // imagem local para visualização
+        const img = document.createElement('img');
+        img.src = foto.visualizar;   // agora usando rota local
+        img.alt = foto.nome;
+
+        // link para baixar (Drive)
+        const linkBaixar = document.createElement('a');
+        linkBaixar.href = foto.download;
+        linkBaixar.target = '_blank';
+        linkBaixar.className = 'btn-download';
+        linkBaixar.textContent = 'Baixar';
+
+        // nome do arquivo (abre a imagem em nova aba local)
+        const linkNome = document.createElement('a');
+        linkNome.href = foto.visualizar;
+        linkNome.target = '_blank';
+        linkNome.textContent = foto.nome;
+
+        card.appendChild(img);
+        card.appendChild(linkNome);
+        card.appendChild(document.createElement('br'));
+        card.appendChild(linkBaixar);
+
+        galeria.appendChild(card);
+      });
+    })
+    .catch(err => {
+      console.error('Erro ao carregar fotos:', err);
+      document.getElementById('galeria').textContent =
+        'Erro ao carregar imagens.';
+    });
+</script>
+</body>
+</html>
