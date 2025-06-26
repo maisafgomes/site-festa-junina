@@ -1,24 +1,23 @@
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-<script src="{{ url_for('static', filename='script.js') }}"></script>
-
-
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Festa Junina - Galeria</title>
-  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <h1>Arraiá das Fotos!</h1>
-  <form id="uploadForm">
-    <input type="text" name="nome" placeholder="Seu nome" required><br>
-    <input type="text" name="legenda" placeholder="Legenda da foto" required><br>
-    <input type="file" name="imagem" accept="image/*" required><br>
+
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+    <input type="file" name="imagem" accept="image/*" multiple required><br>
     <button type="submit">Enviar Foto</button>
   </form>
-  <div id="galeria"></div>
-  <script src="script.js"></script>
+
+  <h2>Galeria</h2>
+  <div id="galeria">
+    {% for img in imagens %}
+      <img src="{{ url_for('uploads', filename=img) }}" alt="{{ img }}" width="200" style="margin: 10px;">
+    {% endfor %}
+  </div>
+
 </body>
 </html>
