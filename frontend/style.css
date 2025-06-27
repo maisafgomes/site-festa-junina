@@ -1,2 +1,33 @@
-body { font-family: sans-serif; background: #fff8dc; text-align: center; }
-#galeria { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+#galeria {
+  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+body {
+background-color: #f8cd6e; /* ex: imagens/bg-junino.png */
+background-size: cover;
+background-attachment: fixed;
+background-position: center;
+}
+
+main {
+border-radius: 10px;
+}
+.btn-custom-download {
+background-color: #f4a019;
+color: white;
+border: none;
+font-weight: bold;
+}
+.btn-custom-download:hover {
+background-color: #e08900;
+color: white;
+}
+.card {
+background-color: transparent !important;
+border: 1px solid transparent !important;
+box-shadow: none !important; /* Remove a sombra */
+      }
