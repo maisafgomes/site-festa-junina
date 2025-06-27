@@ -10,6 +10,12 @@ license = "MIT"
 python = "^3.8"
 flask = "^2.3.0"
 flask-cors = "^4.0.0"
+gunicorn = "^21.2.0"
+google-auth = "^2.29.0"
+google-api-python-client = "^2.125.0"
+google-auth-httplib2 = "^0.2.0"
+google-auth-oauthlib = "^1.2.0"
+
 
 [build-system]
 requires = ["poetry-core"]

@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from flask import url_for
 
 # Configurações - ajuste aqui:
-SERVICE_ACCOUNT_FILE = '/etc/secrets/credetials.json'
+SERVICE_ACCOUNT_FILE = 'credetials.json'
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 FOLDER_ID = '1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz'
 
@@ -77,13 +77,13 @@ def upload():
     return jsonify({'resultados': resultados}), 200
 
 
+@app.route('/enviar')        
+def upload_page():
+    return render_template('index.html')
+
 @app.route('/galeria')
 def galeria():
     return render_template('galeria.html')
-
-@app.route('/upload')
-def index():
-    return render_template('index.html')
 
 
 
@@ -107,6 +107,7 @@ def api_fotos():
         imagens = []
         for f in res.get('files', []):
             nome = f['name']
+            #visualizar = f"https://drive.google.com/uc?export=view&id={f['id']}"
 
             visualizar = url_for('uploads', filename=nome, _external=True)
 
