@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from flask import url_for
 
 # Configurações - ajuste aqui:
-SERVICE_ACCOUNT_FILE = 'credetials.json'
+SERVICE_ACCOUNT_FILE = '/etc/secrets/credentials.json'
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 FOLDER_ID = '1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz'
 
