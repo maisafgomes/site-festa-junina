@@ -1,0 +1,30 @@
+# fly.toml app configuration file generated for site-farofeiros on 2025-06-28T20:53:03-03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'site-farofeiros'
+primary_region = 'gru'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  FOLDER_ID = '1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz'
+
+[[mounts]]
+  source = 'uploads'
+  destination = '/app/uploads'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
