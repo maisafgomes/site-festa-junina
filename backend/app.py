@@ -1,7 +1,14 @@
 # =============================================
 # 📝 INFORMAÇÕES SOBRE O DESENVOLVIMENTO DO CÓDIGO
-# Data de início: 17/06/2025
-# Tempo dedicado: 4h30
+# Data de início........: 17/06/2025
+# Última atualização....: 03/07/2025
+# Tempo dedicado........: 4h30 + otimizações
+# Descrição.............: API Flask para upload de imagens
+#                         otimizada para Fly.io
+#                         • Upload direto da RAM → Google Drive
+#                         • Sem escrita em disco
+#                         • Uploads paralelos
+#                         • Respostas JSON compactadas
 # =============================================
 
 import os
@@ -9,6 +16,8 @@ import json
 import uuid
 import io
 import mimetypes
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from flask import (
     Flask,
     request,
@@ -19,31 +28,31 @@ from flask import (
     Response,
     abort,
 )
+from flask_compress import Compress              # pip install flask-compress
 from werkzeug.utils import secure_filename
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-FOLDER_ID = "1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz"
+# ---------- 🔧 Configurações ----------
+SCOPES     = ["https://www.googleapis.com/auth/drive.file"]
+FOLDER_ID  = "1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz"
 
 app = Flask(__name__)
+Compress(app)                                    # gzip nas respostas
 
-app.config["ALLOWED_EXTENSIONS"] = {"png", "jpg", "jpeg", "gif"}
-app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["ALLOWED_EXTENSIONS"]  = {"png", "jpg", "jpeg", "gif"}
+app.config["UPLOAD_FOLDER"]       = "uploads"    # ainda usado p/ send_from_directory
+app.config["MAX_CONTENT_LENGTH"]  = 10 * 1024 * 1024   # 10 MB por imagem
 
-# Garante que a pasta de uploads exista (tanto local quanto no volume Fly.io)
+# Pasta local só para downloads proxyados/galeria (não mais para upload)
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 
-def allowed_file(filename: str) -> bool:
-    """Verifica se a extensão do arquivo é permitida."""
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
-
-
+# ---------- 🔐 Credenciais Google ----------
 def get_credentials():
     """Obtém credenciais do Google a partir de variável de ambiente ou arquivo."""
-
     json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if json_str:
         info = json.loads(json_str)
@@ -52,77 +61,98 @@ def get_credentials():
     json_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.path.join(os.getcwd(), "service-account.json")
     if not os.path.isfile(json_path):
         raise FileNotFoundError(
-            "Credenciais não encontradas. Defina GOOGLE_SERVICE_ACCOUNT_JSON ou coloque service-account.json no diretório raiz."
+            "Credenciais não encontradas. Defina GOOGLE_SERVICE_ACCOUNT_JSON "
+            "ou coloque service-account.json no diretório raiz."
         )
-
     return service_account.Credentials.from_service_account_file(json_path, scopes=SCOPES)
 
 
-def get_drive_service():
-    """Constrói e devolve o cliente do Google Drive."""
+def build_drive_service():
+    """Cria um cliente Google Drive isolado (thread‑safe)."""
     creds = get_credentials()
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
+# ---------- 🛠️ Utilidades ----------
+def allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
+
+
+def _upload_single(file_name: str, mime_type: str, data: bytes) -> dict:
+    """
+    Função isolada para subir UMA imagem.
+    É executada em threads paralelas.
+    """
+    drive = build_drive_service()                # cada thread cria o seu
+    buffer = io.BytesIO(data)
+    buffer.seek(0)
+
+    unique_name = secure_filename(f"{uuid.uuid4().hex}.{file_name.rsplit('.', 1)[1].lower()}")
+    metadata = {"name": unique_name, "parents": [FOLDER_ID]}
+    media    = MediaIoBaseUpload(buffer, mimetype=mime_type or "application/octet-stream",
+                                 resumable=False, chunksize=256 * 1024)
+
+    try:
+        drive.files().create(body=metadata, media_body=media, fields="id").execute()
+        return {"arquivo": unique_name, "status": "Upload ok"}
+    except Exception as e:
+        app.logger.exception("Falha no Drive")
+        return {"arquivo": file_name, "status": f"Erro: {e}"}
+
+
+# ---------- 🌐 Rotas ----------
 @app.route("/")
 def home():
-    return "API de upload está funcionando! Use /upload para enviar imagens."
+    return "API de upload otimizada! Use /upload para enviar imagens."
 
 
-# ------------------------------
-# 📤 Upload para o Google Drive
-# ------------------------------
+# 📤 Novo endpoint de upload
 @app.route("/upload", methods=["POST"])
 def upload():
     if "imagem" not in request.files:
         return jsonify({"erro": "Nenhum arquivo enviado."}), 400
 
-    imagens = request.files.getlist("imagem")
-    if not imagens or all(im.filename == "" for im in imagens):
+    imagens = [im for im in request.files.getlist("imagem") if im.filename]
+    if not imagens:
         return jsonify({"erro": "Nenhum arquivo selecionado."}), 400
 
-    try:
-        drive = get_drive_service()
-    except Exception as e:
-        app.logger.exception("Falha ao autenticar Google API")
-        return jsonify({"erro": f"Falha na autenticação: {e}"}), 500
+    # Pré‑validação + leitura para RAM
+    files_data = []
+    for imagem in imagens:
+        if not allowed_file(imagem.filename):
+            files_data.append((imagem.filename, imagem.mimetype, None, "Extensão não permitida"))
+            continue
+        try:
+            data = imagem.read()                 # bytes em memória
+            files_data.append((imagem.filename, imagem.mimetype, data, None))
+        except Exception as e:
+            files_data.append((imagem.filename, imagem.mimetype, None, f"Falha ao ler: {e}"))
 
     resultados = []
-    for imagem in imagens:
-        if imagem.filename == "":
-            resultados.append({"arquivo": None, "status": "Arquivo vazio ignorado"})
-            continue
 
-        if not allowed_file(imagem.filename):
-            resultados.append({"arquivo": imagem.filename, "status": "Extensão não permitida"})
-            continue
+    # Uploads paralelos (somente os arquivos válidos com data != None)
+    valid_files = [f for f in files_data if f[2] is not None]
+    if valid_files:
+        max_threads = min(4, len(valid_files))
+        with ThreadPoolExecutor(max_workers=max_threads) as pool:
+            futures = [pool.submit(_upload_single, name, mime, data) for name, mime, data, _ in valid_files]
+            for fut in as_completed(futures):
+                resultados.append(fut.result())
 
-        ext = imagem.filename.rsplit(".", 1)[1].lower()
-        unique_name = secure_filename(f"{uuid.uuid4().hex}.{ext}")
-        local_path = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
-        imagem.save(local_path)
-
-        metadata = {"name": unique_name, "parents": [FOLDER_ID]}
-        media = MediaFileUpload(local_path, resumable=False)
-
-        try:
-            drive.files().create(body=metadata, media_body=media, fields="id").execute()
-            resultados.append({"arquivo": unique_name, "status": "Upload realizado com sucesso"})
-        except Exception as e:
-            app.logger.exception("Falha ao enviar para o Drive")
-            resultados.append({"arquivo": imagem.filename, "status": f"Erro: {e}"})
+    # Anexar erros de leitura/extensão
+    resultados.extend(
+        {"arquivo": name, "status": status or "Erro inesperado"} 
+        for name, _, _, status in files_data if status
+    )
 
     return jsonify({"resultados": resultados}), 200
 
 
-# ------------------------------
 # 📥 Proxy de download (evita CORS)
-# ------------------------------
 @app.route("/download/<file_id>")
 def download_file(file_id):
-    """Faz streaming do arquivo do Google Drive para o cliente mantendo mesma origem."""
     try:
-        drive = get_drive_service()
+        drive = build_drive_service()
         request_drive = drive.files().get_media(fileId=file_id)
 
         def generate():
@@ -147,9 +177,7 @@ def download_file(file_id):
         abort(500, description=str(e))
 
 
-# ------------------------------
-# 🌐 Páginas e arquivos estáticos
-# ------------------------------
+# Páginas estáticas
 @app.route("/enviar")
 def upload_page():
     return render_template("index.html")
@@ -165,14 +193,11 @@ def uploads(filename):
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 
-# ------------------------------
-# 🖼️ API listagem de fotos
-# ------------------------------
+# 🔎 API listagem de fotos
 @app.route("/api/fotos")
 def api_fotos():
     try:
-        drive = get_drive_service()
-
+        drive = build_drive_service()
         res = (
             drive.files()
             .list(
@@ -184,12 +209,10 @@ def api_fotos():
 
         imagens = []
         for f in res.get("files", []):
-            nome = f["name"]
             visualizar = f.get("thumbnailLink") or f"https://drive.google.com/uc?export=view&id={f['id']}"
-            # download via proxy para evitar CORS
-            download = url_for("download_file", file_id=f["id"], _external=False)
+            download   = url_for("download_file", file_id=f["id"], _external=False)
             imagens.append({
-                "nome": nome,
+                "nome": f["name"],
                 "id": f["id"],
                 "visualizar": visualizar,
                 "download": download,
@@ -202,9 +225,8 @@ def api_fotos():
         return jsonify({"erro": str(e)}), 500
 
 
-# ------------------------------
-# 🚀 Execução
-# ------------------------------
+# ---------- 🚀 Execução local ----------
 if __name__ == "__main__":
-    # Ajuste host/port conforme necessidade do PaaS (ex.: Render, Fly.io)
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    # Em produção (Fly.io) use:
+    #   gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)

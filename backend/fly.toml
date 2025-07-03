@@ -6,11 +6,15 @@
 app = 'site-farofeiros'
 primary_region = 'gru'
 
+[deploy]
+  release_command = "echo release ok"
+
 [build]
   dockerfile = 'Dockerfile'
 
 [env]
   FOLDER_ID = '1ZszcUwO1IXnf_pZpOS4X0YWi2iQ2DaJz'
+  PORT = "8000"
 
 [[mounts]]
   source = 'uploads'
